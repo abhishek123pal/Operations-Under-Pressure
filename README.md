@@ -11,7 +11,8 @@ The backend infrastructure is architected around fault-tolerant core primitives 
 *   **Strict Finite State Machine (FSM):** Enforces governed lifecycle progression for operational items:
     \[\text{Open} \longrightarrow \text{In Progress} \longrightarrow \text{Awaiting Approval} \longrightarrow \text{Resolved} \longrightarrow \text{Closed}\]
 *   **Authorization Guardrail:** State transitions exiting the `Awaiting Approval` boundary are strictly restricted at the middleware layer to users holding authenticated `LEAD` or `ADMIN` team memberships.
-*   **Idempotent API Design:** Implements hash-based request tracking (`idempotency_keys`) to guarantee safe execution retries and prevent duplicate side effects under unstable network conditions.
+*   **Cryptographic Idempotency Middleware:** Intercepts mutating HTTP requests via `Idempotency-Key` headers, fingerprinting URL payloads with SHA-256 hashes to prevent double-clicks and duplicate network retries.
+*   **O(1) Keyset Cursor Pagination:** Replaces slow offset pagination with composite tuple sorting (`createdAt`, `id`) backed by multi-column indexes for constant-time scaling across millions of rows.
 
 ---
 
@@ -20,7 +21,7 @@ The backend infrastructure is architected around fault-tolerant core primitives 
 ### Prerequisites
 Ensure your local development environment meets the following baseline requirements:
 *   **Docker Desktop** (with WSL2 engine backend enabled for Windows)
-*   **Node.js** (v18.0.0 or higher)
+*   **Node.js** (v22.x or higher)
 *   **npm** (v9.0.0 or higher)
 
 ### Environment Variables
@@ -29,10 +30,11 @@ Create a `.env` file in the `backend/` directory matching the following structur
 ```env
 # Database Connection URL (configured for Docker container on port 5433 to avoid host conflicts)
 DATABASE_URL="postgresql://postgres:password123@localhost:5433/operations_db?schema=public"
+PORT=4000
 ```
 
 ### Installation & Initialization
-Execute the following commands sequentially within your terminal to provision the database infrastructure and validate the runtime environment:
+Execute the following commands sequentially within your terminal to provision the database infrastructure, spin up your network pool, and run the high-volume data seeder:
 
 ```bash
 # 1. Provision the containerized PostgreSQL instance in the background
@@ -40,13 +42,22 @@ docker compose up -d
 
 # 2. Navigate to the backend directory and install dependencies
 cd backend
-npm install
+npm install --legacy-peer-deps
 
 # 3. Validate the structural integrity of the Prisma schema
 npx prisma validate
 
-# 4. Run initial database migration to synchronize the schema structure
-npx prisma migrate dev --name init
+# 4. Generate the type-safe Prisma client bindings
+npx prisma generate
+
+# 5. Seed 3,500+ mock work items, operators, and tactical teams for stress-testing
+npx tsx prisma/seed.ts
+```
+
+### 🚀 Running the Server
+```bash
+# Boot the production-grade development server with tsx
+npx tsx src/app.ts
 ```
 
 ---
@@ -56,4 +67,5 @@ npx prisma migrate dev --name init
 | Phase | Milestone Description | Status | Target Deliverables |
 | :--- | :--- | :--- | :--- |
 | **Phase 1** | Architecture & Requirements Alignment | [✅] Completed | Dockerized PostgreSQL setup, Prisma 7 runtimes, Core Entities Schema, FSM & Auth Matrix (`ENGINEERING_DECISIONS.md`). |
-| **Phase 2** | Core API Implementation | [ ] Pending | RESTful endpoints development, request payload validation, and service layer assembly. |
+| **Phase 2** | Core Backend & Critical Concurrency Engineering | [✅] Completed | Seeding 3,500+ records, tenant auth middleware, cryptographic idempotency checks, atomic claims, and OCC transaction boundaries. |
+| **Phase 3** | Frontend Interface & Concurrency Simulation | [ ] Pending | Frontend interface construction and live distributed concurrency stress dashboard mapping. |
