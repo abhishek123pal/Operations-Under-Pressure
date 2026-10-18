@@ -1,0 +1,32 @@
+
+/generated/prisma
+# Dependencies
+# --- Dependencies ---
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# --- Environment & Secrets ---
+.env
+backend/.env
+frontend/.env
+
+# --- Build & Output Artifacts ---
+dist/
+build/
+backend/dist/
+frontend/dist/
+
+# --- Logs & OS Files ---
+logs/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+.agents
+.claude
+.windsurf
