@@ -1,5 +1,6 @@
 🚨 Operations Under Pressure
 
+![System Architecture](architecture.png)
 Operations Under Pressure is an enterprise-grade, high-throughput incident management and workflow orchestration platform engineered to handle high-concurrency environments. Built with Node.js, Express, TypeScript, PostgreSQL, Prisma 7, and a reactive React frontend, the system guarantees strict data consistency and fault tolerance through Optimistic Concurrency Control (OCC), cryptographic idempotency, and transactional outbox patterns.
 
 🛠️ Tech Stack
@@ -93,3 +94,5 @@ Given another week of development, the roadmap would transition from a single-no
 	• Replace custom header injection (x-user-id) with secure JSON Web Tokens (JWT) or session cookies managed via Passport.js or Auth0.
 	• Introduce dynamic organization-level scoping where administrators can configure custom permission matrices per team directly from the UI.
 If you want to refine this further, let me know if you would like me to change the visual style, adjust the formatting of the commands, or restructure the tables.
+
+
