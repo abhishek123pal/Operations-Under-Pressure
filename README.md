@@ -1,71 +1,95 @@
-# Operations Under Pressure (Backend)
+🚨 Operations Under Pressure
 
-An enterprise-grade, high-throughput task management and workflow orchestration engine engineered to withstand high-concurrency environments and systemic faults. Built using Node.js, TypeScript, PostgreSQL, and Prisma ORM, this platform implements resilient distributed systems design patterns—including Optimistic Concurrency Control (OCC), rigorous Idempotency guarantees, and the Transactional Outbox pattern—to ensure absolute data consistency under heavy workloads.
+Operations Under Pressure is an enterprise-grade, high-throughput incident management and workflow orchestration platform engineered to handle high-concurrency environments. Built with Node.js, Express, TypeScript, PostgreSQL, Prisma 7, and a reactive React frontend, the system guarantees strict data consistency and fault tolerance through Optimistic Concurrency Control (OCC), cryptographic idempotency, and transactional outbox patterns.
 
-## 🏗️ System Architecture Features
+🛠️ Tech Stack
 
-The backend infrastructure is architected around fault-tolerant core primitives designed to eliminate race conditions, duplicate mutations, and state corruption:
+• Backend: Node.js, Express, TypeScript, Prisma ORM
+• Database & Concurrency: PostgreSQL, ACID Transactions, Optimistic Locking, SHA-256 Idempotency
+• Frontend: React, TypeScript, Vite, Custom Responsive Command Center
+• Testing: Jest, Supertest (Integration Suite)
 
-*   **Optimistic Concurrency Control (OCC):** Enforces integer-based version tracking on high-contention resources (`work_items`). Concurrent mutations assert version parity to prevent lost updates and race conditions under heavy load.
-*   **Transactional Outbox Pattern:** Decouples database writes from downstream asynchronous event distribution via an `outbox_jobs` queue, guaranteeing reliable message publishing without dual-write failures.
-*   **Strict Finite State Machine (FSM):** Enforces governed lifecycle progression for operational items:
-    \[\text{Open} \longrightarrow \text{In Progress} \longrightarrow \text{Awaiting Approval} \longrightarrow \text{Resolved} \longrightarrow \text{Closed}\]
-*   **Authorization Guardrail:** State transitions exiting the `Awaiting Approval` boundary are strictly restricted at the middleware layer to users holding authenticated `LEAD` or `ADMIN` team memberships.
-*   **Cryptographic Idempotency Middleware:** Intercepts mutating HTTP requests via `Idempotency-Key` headers, fingerprinting URL payloads with SHA-256 hashes to prevent double-clicks and duplicate network retries.
-*   **O(1) Keyset Cursor Pagination:** Replaces slow offset pagination with composite tuple sorting (`createdAt`, `id`) backed by multi-column indexes for constant-time scaling across millions of rows.
+⚙️ Prerequisites & Environment Setup
 
----
 
-## ⚙️ Getting Started & Environment Provisioning
+Prerequisites
 
-### Prerequisites
-Ensure your local development environment meets the following baseline requirements:
-*   **Docker Desktop** (with WSL2 engine backend enabled for Windows)
-*   **Node.js** (v22.x or higher)
-*   **npm** (v9.0.0 or higher)
+• Docker Desktop (with WSL2/container backend running)
+• Node.js (v20.x or higher)
+• npm (v10.x or higher)
 
-### Environment Variables
-Create a `.env` file in the `backend/` directory matching the following structure:
+Environment Variables (.env.example)
 
-```env
-# Database Connection URL (configured for Docker container on port 5433 to avoid host conflicts)
-DATABASE_URL="postgresql://postgres:password123@localhost:5433/operations_db?schema=public"
+Create a .env file inside your backend/ directory using the following configuration:
+env
+# PostgreSQL Database Connection URL
+DATABASE_URL="postgresql://postgres:password@localhost:5432/operations_db?schema=public"
 PORT=4000
-```
+Use code with caution.
 
-### Installation & Initialization
-Execute the following commands sequentially within your terminal to provision the database infrastructure, spin up your network pool, and run the high-volume data seeder:
+🚀 Exact Run Commands
 
-```bash
-# 1. Provision the containerized PostgreSQL instance in the background
+Execute the following commands sequentially from your terminal to provision the stack and run the application:
+bash
+# 1. Start the containerized PostgreSQL database instance
 docker compose up -d
 
-# 2. Navigate to the backend directory and install dependencies
+# 2. Setup and seed the backend (migrations, client generation, and 3,500+ mock records)
 cd backend
-npm install --legacy-peer-deps
-
-# 3. Validate the structural integrity of the Prisma schema
-npx prisma validate
-
-# 4. Generate the type-safe Prisma client bindings
+npm install
 npx prisma generate
-
-# 5. Seed 3,500+ mock work items, operators, and tactical teams for stress-testing
+npx prisma db push
 npx tsx prisma/seed.ts
-```
 
-### 🚀 Running the Server
-```bash
-# Boot the production-grade development server with tsx
+# 3. Start the backend server (runs on port 4000)
 npx tsx src/app.ts
-```
 
----
+# 4. In a separate terminal, start the frontend client (runs on port 5173)
+cd ../frontend
+npm install
+npm run dev
+Use code with caution.
 
-## 📊 Project Milestone Tracking
+👥 Demo Login Credentials & Roles
 
-| Phase | Milestone Description | Status | Target Deliverables |
-| :--- | :--- | :--- | :--- |
-| **Phase 1** | Architecture & Requirements Alignment | [✅] Completed | Dockerized PostgreSQL setup, Prisma 7 runtimes, Core Entities Schema, FSM & Auth Matrix (`ENGINEERING_DECISIONS.md`). |
-| **Phase 2** | Core Backend & Critical Concurrency Engineering | [✅] Completed | Seeding 3,500+ records, tenant auth middleware, cryptographic idempotency checks, atomic claims, and OCC transaction boundaries. |
-| **Phase 3** | Frontend Interface & Concurrency Simulation | [ ] Pending | Frontend interface construction and live distributed concurrency stress dashboard mapping. |
+The seed script provisions pre-authenticated teams and operators mapped to specific role boundaries:
+
+Role	Team Assignment	Permissions & Capabilities	Seed ID Reference
+Admin	Core Infrastructure	Full system oversight, team-wide policy governance, and unrestricted transition rights.	user-uuid-1
+Lead	Incident Response Team	Authorized to approve state transitions (e.g., passing the Awaiting Approval gate) and reassign items.	user-uuid-2
+Member	Engineering Operations	Standard operational claim, update, and comment capabilities.	user-uuid-3
+Viewer	Global Read-Only	Read-only access to tactical queues and historical activity logs.	user-uuid-4
+
+Note: The frontend automatically binds these credentials securely via x-user-id and x-team-id request headers on boot.
+
+🧪 How to Run Tests
+
+The repository includes a comprehensive integration test suite verifying critical backend behaviors (concurrent claims, OCC version mismatches, idempotency duplicate checks, and authorization boundaries).
+To run the automated test suite:
+bash
+cd backend
+npm test
+Use code with caution.
+
+⚠️ Known Limitations
+
+• Polling vs. WebSockets: Real-time updates rely on active frontend state refetching and polling intervals rather than bidirectional WebSocket streaming.
+• Single-Region Deployment: The database locking and outbox worker patterns are optimized for single-node Postgres deployments rather than distributed multi-region replication clusters.
+• Authentication Layer: Auth is handled via verified custom headers (x-user-id, x-team-id) mapped to seed records rather than full OAuth/JWT token issuance flows.
+
+🔮 Next Week I Would... (Future Scaling & Architecture Roadmap)
+
+Given another week of development, the roadmap would transition from a single-node monolithic enterprise prototype to a horizontally scalable distributed system:
+• Real-Time WebSocket Streaming (Socket.io / Redis Pub-Sub):
+	• Replace polling and manual refresh triggers with real-time bidirectional event streaming.
+	• When an operator updates an item or triggers an OCC conflict, broadcast state diffs instantly to all connected team members viewing the same tactical queue.
+• Full-Text Search Engine Integration (Elasticsearch / PostgreSQL tsvector):
+	• Upgrade key-value filtering and basic queries to a dedicated inverted-index search engine.
+	• Enable sub-millisecond fuzzy search, faceted filtering, and multi-field aggregations across tens of thousands of incident logs and work items.
+• Distributed Job Queue (BullMQ + Redis):
+	• Migrate the current PostgreSQL-backed transactional outbox worker to an enterprise Redis-backed queue (BullMQ).
+	• Implement concurrency rate-limiting, exponential backoff retries, and dead-letter queues for high-volume third-party webhook integrations (e.g., PagerDuty, Slack alerts).
+• OAuth2 & Role-Based Access Control (RBAC) Token Service:
+	• Replace custom header injection (x-user-id) with secure JSON Web Tokens (JWT) or session cookies managed via Passport.js or Auth0.
+	• Introduce dynamic organization-level scoping where administrators can configure custom permission matrices per team directly from the UI.
+If you want to refine this further, let me know if you would like me to change the visual style, adjust the formatting of the commands, or restructure the tables.

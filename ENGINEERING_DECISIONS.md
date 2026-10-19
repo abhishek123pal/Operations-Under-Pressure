@@ -1,30 +1,58 @@
-# Engineering Decisions & Architectural Rationale
+# ⚙️ ENGINEERING_DECISIONS.md
 
-This document logs concrete architectural choices, state guardrails, and concurrency mitigation strategies enforced within the backend infrastructure.
+This document outlines the core architectural and design decisions made during the development of **Operations Under Pressure**, detailing the trade-offs evaluated and the rationale behind each choice[cite: 1, 2, 5].
 
-## 1. State Machine Transitions (`work_items`)
-The lifecycle of an operational work item follows strict, linear progression rules: 
-\[\text{Open} \longrightarrow \text{In Progress} \longrightarrow \text{Awaiting Approval} \longrightarrow \text{Resolved} \longrightarrow \text{Closed}\]
+---
 
-## 2. Authorization Matrix & Role Enforcement
-*   **State Transition Rule:** Transitioning a work item out of the `Awaiting Approval` boundary state (moving to `Resolved` or `Closed`) is strictly isolated.
-*   **Role Check:** Only users possessing an authenticated `LEAD` or `ADMIN` role within the respective team's `Membership` record are authorized to execute this state change. Standard `MEMBER` or `VIEWER` roles are rejected at the API middleware layer with a `403 Forbidden` response code.
+## 🛑 1. Concurrency Control: Optimistic Concurrency Control (OCC)
 
-## 3. Concurrency Control Strategy (OCC)
-*   Optimistic Concurrency Control (OCC) is enforced on `work_items` using a monotonic `version` integer field. 
-*   Updates must assert `current.version === incomingVersion` and execute an atomic `version + 1` increment inside an isolated single-transaction block (`prisma.$transaction`) to block stale writes and prevent lost updates under heavy load.
+* **Context:** Multiple operators can view and attempt to modify the same high-priority work item simultaneously, creating a risk of race conditions and lost updates[cite: 2, 5].
+* **Options Considered:**
+  1. *Pessimistic Locking (`SELECT ... FOR UPDATE`):* Locks rows at the database level during read/inspection phases[cite: 3, 5].
+  2. *Optimistic Concurrency Control (OCC):* Allows concurrent reads, relying on version numbers (`version`) and conditional checks during writes[cite: 3, 5].
+* **Choice:** **Optimistic Concurrency Control (OCC)** coupled with atomic state claims[cite: 3, 5].
+* **Trade-off:** Pessimistic locking prevents contention conflicts entirely at the cost of database connection starvation and poor user experience under high traffic. OCC maximizes throughput and allows non-blocking reads, but requires the frontend/client to handle a `409 Conflict` response gracefully and reconcile state when a stale version is submitted[cite: 3, 5].
 
-## 4. Prisma 7 Native PostgreSQL Driver Adapters (`@prisma/adapter-pg`)
-*   **Context:** Prisma 7 deprecates direct string-based engine connections for advanced pool management, mandating explicit driver adapters.
-*   **Decision:** Integrated `@prisma/adapter-pg` coupled with `pg.Pool` connection pooling.
-*   **Rationale:** Direct pool management allows fine-tuned control over connection lifecycles, preventing socket exhaustion during high-concurrency stress tests and intensive database seeding loops.
+---
 
-## 5. SHA-256 Payload Fingerprinting for Idempotency
-*   **Context:** Network partitions and user double-clicks frequently trigger duplicate HTTP requests. Simple key checking is vulnerable to payload tampering under the same key signature.
-*   **Decision:** Implemented cryptographic hashing (`crypto.createHash('sha256')`) across both the incoming request URL path and the JSON request body.
-*   **Rationale:** If an operator retries a request with the same `Idempotency-Key` header but alters the mutation parameters, the system instantly catches the signature mismatch and aborts with a `409 Conflict`, preventing split-brain database corruption.
+## 📜 2. History & Auditability: Transactional Append-Only Ledger
 
-## 6. O(1) Keyset Cursor Pagination vs. Offset Pagination
-*   **Context:** Traditional offset pagination (`OFFSET / LIMIT`) degrades linearly (O(N)) as deep table scans execute across 3,500+ seeded work items and beyond.
-*   **Decision:** Implemented cursor pagination using composite tuple sorting (`[createdAt: 'desc', id: 'desc']`).
-*   **Rationale:** Leverages multi-column database indexes to seek directly to the cursor position, maintaining flat query latency regardless of dataset magnitude.
+* **Context:** Enterprise incident management requires complete accountability and historical traceability for every state, priority, and assignee mutation[cite: 2, 5].
+* **Options Considered:**
+  1. *Mutable History Tables / Audit Triggers:* Relying on database triggers to copy old rows to an audit archive[cite: 3, 5].
+  2. *Transactional Append-Only Ledger (`activity_events`):* Writing an explicit activity event record within the exact same database transaction as the primary mutation[cite: 2, 5].
+* **Choice:** **Transactional Append-Only Ledger (`activity_events`)** written atomically alongside entity updates[cite: 2, 5].
+* **Trade-off:** Storing individual event logs increases database write volume and storage growth over time. However, it guarantees absolute consistency between current state and historical audits, completely eliminating race conditions where state changes occur independently of audit logs[cite: 3, 5].
+
+---
+
+## 🔐 3. Authorization Model: Server-Enforced Middleware
+
+* **Context:** Security rules dictate that certain actions (such as passing the `Awaiting Approval` gate) can only be executed by designated team Leads or Admins, while external users must be restricted[cite: 2, 4, 5].
+* **Options Considered:**
+  1. *Client-Side Guarding:* Hiding or disabling UI action buttons based on user roles[cite: 4, 5].
+  2. *Server-Enforced Middleware & Scoped Service Logic:* Validating headers against relational membership tables inside backend middleware and service layers[cite: 3, 4, 5].
+* **Choice:** **Server-Enforced Middleware & Scoped Service Logic**[cite: 3, 4, 5].
+* **Trade-off:** Client-side checks are trivial to bypass via direct API calls (e.g., Postman or cURL). Server-enforced checks add latency and implementation complexity due to database lookups on every request, but ensure absolute security and robust access boundaries[cite: 4, 5].
+
+---
+
+## ⚡ 4. Pagination Strategy: Keyset Cursor Pagination
+
+* **Context:** The system must scale efficiently to handle tens of thousands of work items and growing audit trails without performance degradation[cite: 2, 3, 5].
+* **Options Considered:**
+  1. *Offset-Limit Pagination (`LIMIT offset`):* Traditional page number pagination[cite: 3, 5].
+  2. *Keyset Cursor Pagination (Cursor-based tuple comparison on `createdAt` and `id`):* Navigating datasets using pointers from the last fetched record[cite: 3, 5].
+* **Choice:** **Keyset Cursor Pagination** backed by multi-column database indexes[cite: 3, 5].
+* **Trade-off:** Keyset pagination does not allow jumping directly to an arbitrary page number (e.g., "Page 42"). However, it provides true constant-time query performance regardless of dataset size, whereas offset pagination degrades linearly and causes heavy database overhead on deep pages[cite: 3, 5].
+
+---
+
+## 📨 5. Asynchronous Processing: PostgreSQL Transactional Outbox
+
+* **Context:** System mutations require reliable asynchronous notifications (e.g., assigning tasks or triggering downstream alerts) without risking dual-write failures between the database and an external queue like Redis or RabbitMQ[cite: 3, 5].
+* **Options Considered:**
+  1. *Direct API Callbacks / Fire-and-Forget:* Triggering async notifications immediately during request execution[cite: 3, 5].
+  2. *Transactional Outbox Pattern:* Storing outbox job payloads in a PostgreSQL table within the same transaction as the work item mutation, processed asynchronously by a background worker[cite: 3, 5].
+* **Choice:** **PostgreSQL-Backed Transactional Outbox**[cite: 3, 5].
+* **Trade-off:** Introduces polling or background worker loops rather than instant event delivery. However, it completely eliminates distributed transaction failure risks (where a database commit succeeds but message publishing fails), guaranteeing at-least-once delivery reliability[cite: 3, 5].
